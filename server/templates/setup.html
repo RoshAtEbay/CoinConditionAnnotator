@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coin Annotation Tool</title>
+  <style>
+    :root {
+      --bg: #f6f4ef; --card: #fff; --ink: #1c1b19; --muted: #5c574e;
+      --line: #d9d2c5; --accent: #0b5fff; --err: #a1281d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #fff8e8, transparent 40%),
+        linear-gradient(180deg, #efeae1, var(--bg));
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 40px; max-width: 480px; width: 100%; box-shadow: 0 8px 32px rgba(28,27,25,.07); }
+    h1 { margin: 0 0 6px; font-size: 1.5rem; }
+    p.sub { color: var(--muted); margin: 0 0 28px; }
+    label { display: block; font-size: .9rem; color: var(--muted); margin-bottom: 6px; }
+    input[type=text], input[type=url] {
+      width: 100%; padding: 10px 14px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 1rem; outline: none; margin-bottom: 18px;
+      font-family: inherit; transition: border .15s;
+    }
+    input:focus { border-color: var(--accent); }
+    button { width: 100%; padding: 12px; background: var(--accent); color: #fff;
+      border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; font-family: inherit; transition: opacity .15s; }
+    button:hover { opacity: .88; }
+    .error { background: #fdf0ef; border: 1px solid #f5c5c0; border-radius: 8px;
+      padding: 10px 14px; color: var(--err); font-size: .9rem; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Coin Annotation Tool</h1>
+    <p class="sub">Paste your Google Sheet link and enter your name to begin.</p>
+
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/load">
+      <label for="sheet_url">Google Sheet URL</label>
+      <input type="url" id="sheet_url" name="sheet_url"
+        placeholder="https://docs.google.com/spreadsheets/d/..." required>
+
+      <label for="annotator">Your name</label>
+      <input type="text" id="annotator" name="annotator"
+        placeholder="e.g. Kyle" required>
+
+      <button type="submit">Start annotating &rarr;</button>
+    </form>
+  </div>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coin {{ idx + 1 }} of {{ total }}</title>
+  <style>
+    :root {
+      --bg: #f6f4ef; --card: #fff; --ink: #1c1b19; --muted: #5c574e;
+      --line: #d9d2c5; --accent: #0b5fff; --err: #a1281d; --ok: #0d7a3e;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink); background: radial-gradient(circle at top left, #fff8e8, transparent 40%),
+        linear-gradient(180deg, #efeae1, var(--bg)); min-height: 100vh; }
+
+    /* ── progress bar ── */
+    .progress-bar { height: 4px; background: var(--line); position: sticky; top: 0; z-index: 10; }
+    .progress-fill { height: 100%; background: var(--accent);
+      width: {{ (annotated / total * 100)|round(1) }}%; transition: width .3s; }
+
+    main { max-width: 900px; margin: 0 auto; padding: 24px 16px 80px; }
+
+    /* ── header ── */
+    .top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+    .top h1 { margin: 0; font-size: 1.1rem; }
+    .top .counts { color: var(--muted); font-size: .9rem; }
+
+    /* ── item card ── */
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 22px; box-shadow: 0 6px 24px rgba(28,27,25,.05); margin-bottom: 20px; }
+    .meta { display: flex; gap: 12px 24px; flex-wrap: wrap; color: var(--muted);
+      font-size: .9rem; margin-bottom: 16px; }
+    .meta a { color: var(--accent); }
+
+    /* ── gallery ── */
+    .gallery { display: flex; flex-wrap: wrap; gap: 10px; }
+    .gallery img { height: 160px; width: auto; max-width: 220px;
+      object-fit: contain; border: 1px solid var(--line); border-radius: 8px;
+      background: #f0ece4; cursor: zoom-in; transition: transform .15s; }
+    .gallery img:hover { transform: scale(1.03); }
+
+    /* ── modal ── */
+    #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.92);
+      z-index: 1000; align-items: center; justify-content: center; cursor: zoom-out; }
+    #modal.open { display: flex; }
+    #modal img { max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px; }
+
+    /* ── annotation form ── */
+    .form-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 22px; box-shadow: 0 6px 24px rgba(28,27,25,.05); }
+    h2 { margin: 0 0 14px; font-size: 1rem; }
+
+    .buckets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+    .bucket-label { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+      border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+      font-size: .97rem; transition: border-color .12s, background .12s; }
+    .bucket-label:hover { background: #f7f4ee; border-color: #b0a898; }
+    .bucket-label input[type=radio] { accent-color: var(--accent); width: 18px; height: 18px; cursor: pointer; }
+    .bucket-label.selected { border-color: var(--accent); background: #eef3ff; }
+    .bucket-label.cannot { border-style: dashed; }
+
+    /* ── damaged checkbox ── */
+    .damaged-row { display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 24px;
+      cursor: pointer; transition: background .12s; }
+    .damaged-row:hover { background: #f7f4ee; }
+    .damaged-row input[type=checkbox] { accent-color: var(--err); width: 20px; height: 20px; cursor: pointer; }
+    .damaged-label { font-size: .97rem; }
+    .damaged-hint { font-size: .82rem; color: var(--muted); }
+
+    /* ── buttons ── */
+    .btn-row { display: flex; gap: 10px; }
+    .btn { flex: 1; padding: 13px; border-radius: 10px; font-size: 1rem;
+      font-weight: 600; cursor: pointer; font-family: inherit; border: none; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-skip { background: transparent; border: 1px solid var(--line); color: var(--muted); flex: 0 0 auto; padding: 13px 20px; }
+
+    .error { background: #fdf0ef; border: 1px solid #f5c5c0; border-radius: 8px;
+      padding: 10px 14px; color: var(--err); font-size: .9rem; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+
+<div class="progress-bar"><div class="progress-fill"></div></div>
+
+<main>
+  <div class="top">
+    <h1>Coin {{ idx + 1 }} &nbsp;/&nbsp; {{ total }}</h1>
+    <span class="counts">{{ annotated }} done &middot; {{ remaining }} remaining &middot; {{ annotator }}</span>
+  </div>
+
+  {% if request.args.get('error') %}
+  <div class="error">{{ request.args.get('error') }}</div>
+  {% endif %}
+
+  <!-- coin images card -->
+  <div class="card">
+    <div class="meta">
+      {% if item_id %}
+      <span>Item #{{ item_id }}</span>
+      {% endif %}
+      {% if item_url %}
+      <a href="{{ item_url }}" target="_blank" rel="noopener">View listing &rarr;</a>
+      {% endif %}
+    </div>
+
+    {% if images %}
+    <div class="gallery">
+      {% for img_url in images %}
+      <img src="{{ img_url }}" alt="Coin image {{ loop.index }}" loading="lazy"
+           data-full="{{ img_url }}"
+           onclick="openModal('{{ img_url }}')">
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:var(--muted)">No images found for this item.</p>
+    {% endif %}
+  </div>
+
+  <!-- annotation form -->
+  <div class="form-card">
+    <form method="POST" action="/submit">
+      <input type="hidden" name="item_id" value="{{ item_id }}">
+      <input type="hidden" name="idx" value="{{ idx }}">
+
+      <h2>Condition</h2>
+      <div class="buckets">
+        {% for bucket in buckets %}
+        <label class="bucket-label {% if loop.last %}cannot{% endif %}">
+          <input type="radio" name="condition" value="{{ bucket }}" required
+                 onchange="this.closest('.buckets').querySelectorAll('.bucket-label').forEach(l=>l.classList.remove('selected')); this.closest('.bucket-label').classList.add('selected')">
+          {{ bucket }}
+        </label>
+        {% endfor %}
+      </div>
+
+      <label class="damaged-row">
+        <input type="checkbox" name="damaged" id="damaged">
+        <div>
+          <div class="damaged-label">Cleaned / Damaged / Problem Coin</div>
+          <div class="damaged-hint">Check if coin shows cleaning, damage, or other issues affecting grade</div>
+        </div>
+      </label>
+
+      <div class="btn-row">
+        <button type="submit" name="action" value="submit" class="btn btn-primary">Save &amp; next &rarr;</button>
+        <button type="submit" name="action" value="skip" class="btn btn-skip">Skip</button>
+      </div>
+    </form>
+  </div>
+</main>
+
+<!-- full-res image modal -->
+<div id="modal" onclick="closeModal()">
+  <img id="modal-img" src="" alt="Full resolution">
+</div>
+
+<script>
+  function openModal(src) {
+    document.getElementById('modal-img').src = src;
+    document.getElementById('modal').classList.add('open');
+  }
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+
+</body>
+</html>

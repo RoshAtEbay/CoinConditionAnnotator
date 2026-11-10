@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Annotation Complete</title>
+  <style>
+    :root { --bg: #f6f4ef; --card: #fff; --ink: #1c1b19; --muted: #5c574e;
+      --line: #d9d2c5; --accent: #0b5fff; --ok: #0d7a3e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #fff8e8, transparent 40%),
+        linear-gradient(180deg, #efeae1, var(--bg));
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 40px; max-width: 480px; width: 100%; box-shadow: 0 8px 32px rgba(28,27,25,.07); text-align: center; }
+    h1 { margin: 0 0 8px; }
+    p { color: var(--muted); margin: 0 0 28px; }
+    button { width: 100%; padding: 13px; background: var(--accent); color: #fff;
+      border: none; border-radius: 10px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; font-family: inherit; margin-bottom: 10px; transition: opacity .15s; }
+    button:hover { opacity: .85; }
+    .btn-secondary { background: transparent; border: 1px solid var(--line);
+      color: var(--ink); font-weight: 400; }
+    #result { margin-top: 16px; font-size: .95rem; }
+    #result a { color: var(--accent); }
+    #result .err { color: #a1281d; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>All done, {{ annotator }}!</h1>
+    <p>You've reviewed all {{ total }} coins. Annotations are saved to the original sheet.</p>
+
+    <button onclick="exportSheet()">Create results-only spreadsheet</button>
+    <a href="{{ sheet_url }}" target="_blank" rel="noopener">
+      <button class="btn-secondary">Open original sheet &rarr;</button>
+    </a>
+    <a href="/"><button class="btn-secondary">Start a new sheet</button></a>
+
+    <div id="result"></div>
+  </div>
+
+  <script>
+    async function exportSheet() {
+      const btn = document.querySelector('button');
+      btn.textContent = 'Creating…';
+      btn.disabled = true;
+
+      const res = await fetch('/export', { method: 'POST' });
+      const data = await res.json();
+      const el = document.getElementById('result');
+
+      if (data.url) {
+        el.innerHTML = `Results sheet ready: <a href="${data.url}" target="_blank">${data.url}</a>`;
+      } else {
+        el.innerHTML = `<span class="err">Error: ${data.error}</span>`;
+      }
+      btn.textContent = 'Create results-only spreadsheet';
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>
