@@ -166,13 +166,8 @@
       <input type="text" id="annotator-name" placeholder="e.g. Kyle">
 
       <button class="btn btn-primary" onclick="startSession()">
-        Sign in with Google &amp; start &rarr;
+        Start annotating &rarr;
       </button>
-
-      <p style="font-size:.82rem;color:var(--muted);text-align:center">
-        You'll be asked to sign in to your eBay Google account.<br>
-        Only the sheet you provide will be accessed.
-      </p>
     </div>
   </div>
 </div>
@@ -242,17 +237,16 @@
   <img id="modal-img" src="" alt="">
 </div>
 
-<!-- Google Identity Services -->
-<script src="https://accounts.google.com/gsi/client" async></script>
-
 <script>
 /* ═══════════════════════════════════════════════════════════
-   CONFIG — fill these in after setting up Google Cloud
-   See README for how to get these values.
+   CONFIG — paste your Apps Script Web App URL here
+   Steps: Sheet → Extensions → Apps Script → paste Code.gs
+          → Deploy → New deployment → Web App
+          → Execute as: Me, Who has access: Anyone → Deploy
+          → copy the /exec URL below
 ═══════════════════════════════════════════════════════════ */
 const CONFIG = {
-  clientId: '',   // OAuth 2.0 Client ID (Web application)
-  apiKey:   '',   // API key restricted to Sheets API (read-only key for initial load)
+  scriptUrl: '', // Google Apps Script Web App /exec URL
 };
 
 const BUCKETS = [
@@ -265,6 +259,7 @@ const BUCKETS = [
 
 const ANNOTATION_COLS = ["BU_CONDITION", "BU_DAMAGED", "BU_ANNOTATOR", "BU_ANNOTATED_AT"];
 const IMAGE_COLS = [
+  "GLRY_URL",
   "picture_url","picture_url_2","picture_url_3","picture_url_4",
   "image_url","image_url_2","image_url_3","image_url_4",
 ];
@@ -273,7 +268,6 @@ const IMAGE_COLS = [
    STATE
 ═══════════════════════════════════════════════════════════ */
 const S = {
-  token:      null,
   sheetId:    '',
   annotator:  '',
   items:      [],   // [{rowIndex, itemId, itemUrl, images, sellerCondition, buCondition}]
@@ -282,64 +276,8 @@ const S = {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   AUTH
+   APPS SCRIPT API
 ═══════════════════════════════════════════════════════════ */
-function requestToken(callback) {
-  if (!CONFIG.clientId) {
-    showError('setup-error', 'CLIENT_ID not configured. See README.');
-    return;
-  }
-  const client = google.accounts.oauth2.initTokenClient({
-    client_id: CONFIG.clientId,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    callback: (resp) => {
-      if (resp.error) { showError('setup-error', `Auth error: ${resp.error}`); return; }
-      S.token = resp.access_token;
-      callback();
-    },
-  });
-  client.requestAccessToken({ prompt: '' });
-}
-
-/* ═══════════════════════════════════════════════════════════
-   SHEETS API
-═══════════════════════════════════════════════════════════ */
-async function sheetsGet(sheetId, range) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${S.token}` } });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${resp.status}`);
-  }
-  return resp.json();
-}
-
-async function sheetsPut(sheetId, range, values) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
-  const resp = await fetch(url, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${S.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values }),
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${resp.status}`);
-  }
-}
-
-async function sheetsAppendHeader(sheetId, colName) {
-  // Append a new header column to row 1
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/1:1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
-  // Actually — simpler: just PUT to the next empty cell in row 1
-  // We'll handle this in loadSheet
-}
-
-function colLetter(idx) {
-  let s = '', n = idx + 1;
-  while (n > 0) { s = String.fromCharCode(64 + (n % 26 || 26)) + s; n = Math.floor((n - 1) / 26); }
-  return s;
-}
-
 async function withRetry(fn, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try { return await fn(); }
@@ -350,11 +288,31 @@ async function withRetry(fn, retries = 3) {
   }
 }
 
+async function scriptGet(params = {}) {
+  const url = new URL(CONFIG.scriptUrl);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const resp = await fetch(url.toString());
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function scriptWrite(rowIndex, condition, damaged, annotator) {
+  const ts = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  await scriptGet({
+    action:          'write',
+    rowIndex:        rowIndex,
+    BU_CONDITION:    condition,
+    BU_DAMAGED:      damaged ? 'Yes' : '',
+    BU_ANNOTATOR:    annotator,
+    BU_ANNOTATED_AT: ts,
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════
    LOAD SHEET
 ═══════════════════════════════════════════════════════════ */
 async function loadSheet() {
-  const data = await withRetry(() => sheetsGet(S.sheetId, 'A:Z'));
+  const data = await withRetry(() => scriptGet());
   const rows = data.values || [];
   if (!rows.length) throw new Error('Sheet is empty.');
 
@@ -362,20 +320,7 @@ async function loadSheet() {
   S.colMap = {};
   headers.forEach((h, i) => { S.colMap[h] = i; });
 
-  // Ensure BU annotation columns exist
-  let changed = false;
-  for (const col of ANNOTATION_COLS) {
-    if (!(col in S.colMap)) {
-      const nextIdx = headers.length;
-      headers.push(col);
-      S.colMap[col] = nextIdx;
-      // Write header to sheet
-      await withRetry(() => sheetsPut(S.sheetId, `${colLetter(nextIdx)}1`, [[col]]));
-      changed = true;
-    }
-  }
-
-  // Parse items
+  // Parse items (BU columns created by Apps Script on first write if missing)
   S.items = rows.slice(1).map((row, i) => {
     const get = col => S.colMap[col] !== undefined ? (row[S.colMap[col]] || '') : '';
     const itemId = String(get('ITEM_ID')).trim();
@@ -386,7 +331,7 @@ async function loadSheet() {
       itemId,
       itemUrl,
       images,
-      sellerCondition: get('SELLER_CONDITION'),
+      sellerCondition: get('ITEM_CONDITION_NM') || get('UNGRADED_CONDITION') || get('SELLER_CONDITION'),
       buCondition: String(get('BU_CONDITION')).trim(),
     };
   }).filter(item => item.itemId);
@@ -396,35 +341,7 @@ async function loadSheet() {
    WRITE ANNOTATION
 ═══════════════════════════════════════════════════════════ */
 async function writeAnnotation(item, condition, damaged) {
-  const ts = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-  const row = item.rowIndex;
-
-  const buCondCol   = colLetter(S.colMap['BU_CONDITION']);
-  const buDamagedCol = colLetter(S.colMap['BU_DAMAGED']);
-  const buAnnotCol  = colLetter(S.colMap['BU_ANNOTATOR']);
-  const buTsCol     = colLetter(S.colMap['BU_ANNOTATED_AT']);
-
-  // Batch update — write all 4 cells in one request
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${S.sheetId}/values:batchUpdate`;
-  const body = {
-    valueInputOption: 'RAW',
-    data: [
-      { range: `${buCondCol}${row}`,    values: [[condition]] },
-      { range: `${buDamagedCol}${row}`, values: [[damaged ? 'Yes' : '']] },
-      { range: `${buAnnotCol}${row}`,   values: [[S.annotator]] },
-      { range: `${buTsCol}${row}`,      values: [[ts]] },
-    ],
-  };
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${S.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Write failed: HTTP ${resp.status}`);
-  }
-  // Update local state
+  await scriptWrite(item.rowIndex, condition, damaged, S.annotator);
   item.buCondition = condition;
 }
 
@@ -518,6 +435,9 @@ async function startSession() {
   if (!sheetUrl || !annotator) {
     showError('setup-error', 'Please fill in both fields.'); return;
   }
+  if (!CONFIG.scriptUrl) {
+    showError('setup-error', 'Apps Script URL not configured — paste the /exec URL into CONFIG.scriptUrl.'); return;
+  }
 
   let sheetId;
   try {
@@ -528,28 +448,26 @@ async function startSession() {
     showError('setup-error', e.message); return;
   }
 
-  if (!CONFIG.clientId) {
-    showError('setup-error', 'CLIENT_ID not configured — see README.'); return;
-  }
-
   S.sheetId   = sheetId;
   S.annotator = annotator;
 
-  requestToken(async () => {
-    try {
-      await loadSheet();
-    } catch (e) {
-      showError('setup-error', `Could not load sheet: ${e.message}`); return;
-    }
+  const btn = document.querySelector('#screen-setup .btn-primary');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Loading…';
 
-    const first = nextUnannotated();
-    if (first === null) {
-      showDone(); return;
-    }
-    S.currentIdx = first;
-    showScreen('annotate');
-    renderItem(first);
-  });
+  try {
+    await loadSheet();
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerHTML = 'Start annotating →';
+    showError('setup-error', `Could not load sheet: ${e.message}`); return;
+  }
+
+  const first = nextUnannotated();
+  if (first === null) { showDone(); return; }
+  S.currentIdx = first;
+  showScreen('annotate');
+  renderItem(first);
 }
 
 async function submitAnnotation(skip) {
